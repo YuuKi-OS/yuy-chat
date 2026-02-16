@@ -6,14 +6,18 @@ use crate::config::YUUKI_API;
 #[derive(Debug, Serialize)]
 struct YuukiRequest {
     prompt: String,
+    model: String,
+    max_new_tokens: u32,
     temperature: f32,
     top_p: f32,
-    max_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
 struct YuukiResponse {
     response: String,
+    model: String,
+    tokens_generated: u32,
+    time_ms: u32,
 }
 
 pub struct HuggingFaceAPI {
@@ -27,32 +31,32 @@ impl HuggingFaceAPI {
         Self {
             client: Client::new(),
             token: Some(token),
-            model: format!("{}/{}", org, model),
+            model: model.to_lowercase(), // yuuki-best, yuuki-3.7, etc.
         }
     }
 
     pub async fn generate(&self, prompt: &str, temperature: f32, top_p: f32) -> Result<String> {
-        // Use Yuuki API endpoint
-        let url = YUUKI_API;
+        // Yuuki API endpoint: https://huggingface.co/spaces/OpceanAI/Yuuki-api/generate
+        let url = format!("{}/generate", YUUKI_API);
 
         let request = YuukiRequest {
             prompt: prompt.to_string(),
+            model: self.model.clone(),
+            max_new_tokens: 120,
             temperature,
             top_p,
-            max_tokens: 512,
         };
 
-        let mut req = self.client.post(url).json(&request);
-
-        // Add token if available (optional for public API)
-        if let Some(token) = &self.token {
-            req = req.header("Authorization", format!("Bearer {}", token));
-        }
-
-        let response = req.send().await?;
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await?;
 
         if !response.status().is_success() {
-            anyhow::bail!("Yuuki API error: {}", response.status());
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            anyhow::bail!("Yuuki API error {}: {}", status, error_text);
         }
 
         let yuuki_response: YuukiResponse = response.json().await?;
