@@ -1,28 +1,24 @@
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use crate::config::YUUKI_API;
 
 #[derive(Debug, Serialize)]
-struct HFRequest {
-    inputs: String,
-    parameters: HFParameters,
-}
-
-#[derive(Debug, Serialize)]
-struct HFParameters {
+struct YuukiRequest {
+    prompt: String,
     temperature: f32,
     top_p: f32,
-    max_new_tokens: u32,
+    max_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
-struct HFResponse {
-    generated_text: String,
+struct YuukiResponse {
+    response: String,
 }
 
 pub struct HuggingFaceAPI {
     client: Client,
-    token: String,
+    token: Option<String>,
     model: String,
 }
 
@@ -30,41 +26,36 @@ impl HuggingFaceAPI {
     pub fn new(token: String, org: String, model: String) -> Self {
         Self {
             client: Client::new(),
-            token,
+            token: Some(token),
             model: format!("{}/{}", org, model),
         }
     }
 
     pub async fn generate(&self, prompt: &str, temperature: f32, top_p: f32) -> Result<String> {
-        let url = format!("https://api-inference.huggingface.co/models/{}", self.model);
+        // Use Yuuki API endpoint
+        let url = YUUKI_API;
 
-        let request = HFRequest {
-            inputs: prompt.to_string(),
-            parameters: HFParameters {
-                temperature,
-                top_p,
-                max_new_tokens: 512,
-            },
+        let request = YuukiRequest {
+            prompt: prompt.to_string(),
+            temperature,
+            top_p,
+            max_tokens: 512,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .json(&request)
-            .send()
-            .await?;
+        let mut req = self.client.post(url).json(&request);
+
+        // Add token if available (optional for public API)
+        if let Some(token) = &self.token {
+            req = req.header("Authorization", format!("Bearer {}", token));
+        }
+
+        let response = req.send().await?;
 
         if !response.status().is_success() {
-            anyhow::bail!("HuggingFace API error: {}", response.status());
+            anyhow::bail!("Yuuki API error: {}", response.status());
         }
 
-        let hf_response: Vec<HFResponse> = response.json().await?;
-
-        if let Some(first) = hf_response.first() {
-            Ok(first.generated_text.clone())
-        } else {
-            Ok(String::new())
-        }
+        let yuuki_response: YuukiResponse = response.json().await?;
+        Ok(yuuki_response.response)
     }
 }
