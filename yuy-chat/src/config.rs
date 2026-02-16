@@ -110,3 +110,9 @@ impl Config {
         Ok(config_dir)
     }
 }
+
+// Yuuki constants
+pub const HF_ORG: &str = "OpceanAI";
+pub const OLLAMA_ORG: &str = "aguitachan3";
+pub const YUUKI_API: &str = "https://huggingface.co/spaces/OpceanAI/Yuuki-api";
+pub const AVAILABLE_QUANTS: &[&str] = &["q4_0", "q4_k_m", "q5_k_m", "q8_0", "f32"];

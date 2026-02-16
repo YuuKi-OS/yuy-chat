@@ -1,5 +1,5 @@
 use super::{Model, ModelFormat, ModelSource};
-use crate::config::Preset;
+use crate::config::{Preset, YUUKI_API};
 use anyhow::{Context, Result};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -109,19 +109,44 @@ impl ModelRuntime {
     }
 
     async fn generate_hf(&mut self, prompt: &str) -> Result<()> {
-        // Placeholder for HuggingFace API call
+        // Use Yuuki API
         let (tx, rx) = mpsc::channel(100);
         self.response_rx = Some(rx);
 
         let prompt_owned = prompt.to_string();
+        let api_url = YUUKI_API.to_string();
+        let temp = self.preset.temperature();
+        let top_p = self.preset.top_p();
         
         tokio::spawn(async move {
-            // Simulated streaming response
-            let response = format!("Response to: {}", prompt_owned);
-            for word in response.split_whitespace() {
-                let _ = tx.send(format!("{} ", word)).await;
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // Call Yuuki API
+            let client = reqwest::Client::new();
+            let response = client
+                .post(&api_url)
+                .json(&serde_json::json!({
+                    "prompt": prompt_owned,
+                    "temperature": temp,
+                    "top_p": top_p,
+                    "max_tokens": 512
+                }))
+                .send()
+                .await;
+
+            match response {
+                Ok(resp) => {
+                    if let Ok(text) = resp.text().await {
+                        // Stream response word by word
+                        for word in text.split_whitespace() {
+                            let _ = tx.send(format!("{} ", word)).await;
+                            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                        }
+                    }
+                }
+                Err(_) => {
+                    let _ = tx.send("Error: Could not connect to Yuuki API".to_string()).await;
+                }
             }
+            
             let _ = tx.send("[DONE]".to_string()).await;
         });
 
